@@ -19,7 +19,7 @@ div.stButton > button:hover { border-color: #FF5722 !important; color: #FF5722 !
 st.markdown(cursor_svg, unsafe_allow_html=True)
 
 # --- 2. GESTIÓN DE SEGURIDAD (EMAIL + CLAVE) ---
-URL_LICENCIAS = "https://gist.githubusercontent.com/PabloDevCode/ebd32710506e47dcc3194d29da566398/raw/8b38d505eca9ab4964212ba634d413d35b0e9e1a/licencias.txt" 
+URL_LICENCIAS = "https://gist.githubusercontent.com/PabloDevCode/ebd32710506e47dcc3194d29da566398/raw/licencias.txt" 
 
 # Respaldo local para pruebas (formato email:clave)
 if "PEGAR_AQUI" in URL_LICENCIAS:
@@ -337,4 +337,5 @@ else:
                 c1.table(item['data'])
                 c2.button("🗑️ Eliminar", key=f"del_{i}", on_click=eliminar_item, args=(i,))
     else:
+
         st.info("Configura los muros o cielorrasos en la izquierda para comenzar.")
