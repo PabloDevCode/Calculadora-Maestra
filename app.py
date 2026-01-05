@@ -4,6 +4,7 @@ import math
 from fpdf import FPDF
 import datetime
 import requests
+import time
 
 # --- 1. CONFIGURACIÓN Y ESTILOS ---
 st.set_page_config(page_title="Calculadora Maestra Pro", page_icon="🏗️", layout="wide")
@@ -19,15 +20,13 @@ div.stButton > button:hover { border-color: #FF5722 !important; color: #FF5722 !
 st.markdown(cursor_svg, unsafe_allow_html=True)
 
 # --- 2. GESTIÓN DE SEGURIDAD (EMAIL + CLAVE) ---
-URL_LICENCIAS = "https://gist.githubusercontent.com/PabloDevCode/ebd32710506e47dcc3194d29da566398/raw/licencias.txt" 
+# Tu URL real de Gist (ya corregida y limpia)
+URL_LICENCIAS = "https://gist.githubusercontent.com/PabloDevCode/ebd32710506e47dcc3194d29da566398/raw/licencias.txt"
 
-# Respaldo local para pruebas (formato email:clave)
-if "PEGAR_AQUI" in URL_LICENCIAS:
-    URL_LICENCIAS = None 
-    BASE_DATOS_LOCAL = {
-        "admin@test.com": "MASTER2026",
-        "cliente@obra.com": "PRUEBA1"
-    }
+# Respaldo local por si falla internet
+BASE_DATOS_LOCAL = {
+    "admin@test.com": "MASTER2026"
+}
 
 if "usuario_validado" not in st.session_state:
     st.session_state["usuario_validado"] = False
@@ -37,39 +36,47 @@ if "carrito_proyecto" not in st.session_state:
     st.session_state["carrito_proyecto"] = []
 
 def verificar_credenciales_online(email, clave):
-    """Verifica el par Email:Clave en el Gist"""
+    """Verifica el par Email:Clave en el Gist (Bypasseando caché)"""
     if not email or not clave: return False
-    
-    # Normalizamos el email a minúsculas para evitar errores
+
+    # Normalizamos
     email = email.lower().strip()
     clave = clave.strip()
 
-    # MODO LOCAL
+    # MODO LOCAL (Solo si no hay URL configurada o falla requests crítico)
     if URL_LICENCIAS is None:
-        # Verifica si el email existe y si la clave coincide
         return BASE_DATOS_LOCAL.get(email) == clave
     
     # MODO ONLINE
     try:
-        response = requests.get(URL_LICENCIAS, timeout=5)
+        # EL TRUCO: Agregamos ?v=TIEMPO al final para obligar a GitHub a actualizar
+        url_fresca = f"{URL_LICENCIAS}?v={int(time.time())}"
+        
+        response = requests.get(url_fresca, timeout=5)
+        
         if response.status_code == 200:
-            # Procesamos el texto línea por línea
             lineas = response.text.splitlines()
+            
+            # --- CORRECCIÓN AQUÍ: Bucle de búsqueda ---
             for linea in lineas:
                 if ":" in linea:
-                    # Separamos "juan@gmail.com:CLAVE123"
                     datos = linea.split(":")
-                    email_remoto = datos[0].strip().lower()
-                    clave_remota = datos[1].strip()
-                    
-                    if email_remoto == email and clave_remota == clave:
-                        return True
+                    if len(datos) >= 2:
+                        email_remoto = datos[0].strip().lower()
+                        clave_remota = datos[1].strip()
+                        
+                        # Si encontramos coincidencia, retornamos True INMEDIATAMENTE
+                        if email_remoto == email and clave_remota == clave:
+                            return True
+            
+            # Si el bucle termina y no encontró nada, ENTONCES retornamos False
             return False
+            
         else:
-            st.error("⚠️ Error de conexión con servidor de licencias.")
+            st.error("⚠️ Error conectando al servidor de licencias (GitHub).")
             return False
-    except:
-        st.error("⚠️ Sin internet.")
+    except Exception as e:
+        st.error(f"⚠️ Error de conexión: {e}")
         return False
 
 def intentar_ingreso():
@@ -80,15 +87,15 @@ def intentar_ingreso():
     email = st.session_state["input_email"]
     clave = st.session_state["input_password"]
     
-    with st.spinner("Validando identidad..."):
+    with st.spinner("Validando licencia en la nube..."):
         es_valido = verificar_credenciales_online(email, clave)
     
     if es_valido:
         st.session_state["usuario_validado"] = True
-        st.session_state["user_email"] = email # Guardamos el email para el PDF
-        st.toast(f"Hola {email.split('@')[0]}! Acceso concedido.")
+        st.session_state["user_email"] = email
+        st.toast(f"¡Bienvenido {email.split('@')[0]}!")
     else:
-        st.error("🚫 Credenciales incorrectas. Verifique Email y Clave.")
+        st.error("🚫 Acceso Denegado. Verifique Email y Clave.")
 
 def limpiar_proyecto():
     st.session_state["carrito_proyecto"] = []
@@ -96,14 +103,13 @@ def limpiar_proyecto():
 def eliminar_item(index):
     del st.session_state["carrito_proyecto"][index]
 
-# --- 3. MOTOR PDF (CON MARCA DE AGUA DE EMAIL) ---
+# --- 3. MOTOR PDF ---
 class PDFReport(FPDF):
     def footer(self):
         self.set_y(-15)
         self.set_font('Arial', 'I', 8)
         self.set_text_color(128, 128, 128)
         hoy = datetime.date.today().strftime("%d/%m/%Y")
-        # AQUI ESTA LA MAGIA: Imprime el email del usuario en el PDF
         usuario = st.session_state.get("user_email", "Usuario Desconocido")
         texto = f"Generado el {hoy} por {usuario}. Licencia intransferible. Prohibida su copia."
         self.cell(0, 10, texto, 0, 0, 'C')
@@ -116,7 +122,6 @@ def generar_pdf(df_total):
     pdf.cell(0, 10, txt="LISTA DE MATERIALES CONSOLIDADA", ln=True, align='C')
     pdf.ln(5)
     
-    # Subtítulo con datos del cliente
     pdf.set_font("Arial", size=10)
     pdf.set_text_color(80, 80, 80)
     usuario = st.session_state.get("user_email", "")
@@ -127,6 +132,7 @@ def generar_pdf(df_total):
     pdf.set_text_color(50, 50, 50)
     pdf.cell(0, 10, txt=f"Proyecto: {len(st.session_state['carrito_proyecto'])} ambientes calculados.", ln=True, align='L')
     pdf.ln(5)
+    
     pdf.set_font("Arial", "B", 10)
     pdf.set_text_color(0, 0, 0)
     pdf.set_fill_color(220, 230, 241) 
@@ -135,6 +141,7 @@ def generar_pdf(df_total):
     pdf.cell(w_mat, 10, "Material", 1, 0, 'C', 1)
     pdf.cell(w_uni, 10, "Unid.", 1, 0, 'C', 1) 
     pdf.cell(w_cant, 10, "Cant.", 1, 1, 'C', 1)
+    
     pdf.set_font("Arial", size=9)
     for index, row in df_total.iterrows():
         cat = (str(row['Categoría'])[:28] + '..') if len(str(row['Categoría'])) > 28 else str(row['Categoría'])
@@ -143,6 +150,7 @@ def generar_pdf(df_total):
         pdf.cell(w_mat, 8, mat, 1)
         pdf.cell(w_uni, 8, str(row['Unidad']), 1, 0, 'C')
         pdf.cell(w_cant, 8, str(row['Cantidad']), 1, 1, 'C')
+        
     return pdf.output(dest="S").encode("latin-1")
 
 # --- 4. MOTOR DE CÁLCULO ---
@@ -243,11 +251,12 @@ if not st.session_state["usuario_validado"]:
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.markdown("<h1 style='text-align: center;'>🔒 Pack Estimación PRO</h1>", unsafe_allow_html=True)
+        
+        # Estado del servidor
         if URL_LICENCIAS and "PEGAR_AQUI" not in URL_LICENCIAS:
             st.caption("🟢 Servidor: Conectado")
         
         with st.form("login_form"):
-            # AHORA PEDIMOS EMAIL TAMBIEN
             email = st.text_input("Correo Electrónico (Registrado):", key="input_email")
             password = st.text_input("Contraseña de Licencia:", type="password", key="input_password")
             terminos = st.checkbox("Acepto los Términos de Licencia.", key="check_terminos")
@@ -300,8 +309,10 @@ else:
         if st.button("Calcular y Agregar", type="primary"):
             L = largo_calc if "Cielorraso" not in tipo_sis else l1
             H = alto_calc if "Cielorraso" not in tipo_sis else l2
+            
             calc = CalculadoraConstruccion(L, H, tipo_sis, sep/100, desp, caras, capas, aislacion, espesor_cielo)
             df_res = calc.calcular()
+            
             st.session_state["carrito_proyecto"].append({"nombre": nombre_ambiente, "sistema": tipo_sis, "data": df_res})
             st.toast(f"✅ {nombre_ambiente} agregado!")
 
@@ -337,5 +348,4 @@ else:
                 c1.table(item['data'])
                 c2.button("🗑️ Eliminar", key=f"del_{i}", on_click=eliminar_item, args=(i,))
     else:
-
         st.info("Configura los muros o cielorrasos en la izquierda para comenzar.")
