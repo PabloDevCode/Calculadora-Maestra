@@ -25,6 +25,8 @@ BASE_DATOS_LOCAL = {"admin@test.com": "MASTER2026"}
 
 if "usuario_validado" not in st.session_state:
     st.session_state["usuario_validado"] = False
+if "user_email" not in st.session_state:
+    st.session_state["user_email"] = ""
 if "carrito_proyecto" not in st.session_state:
     st.session_state["carrito_proyecto"] = []
 
@@ -54,8 +56,13 @@ def intentar_ingreso():
     if not st.session_state["check_terminos"]:
         st.error("⚠️ Debes aceptar los términos.")
         return
-    if verificar_credenciales_online(st.session_state["input_email"], st.session_state["input_password"]):
+    
+    email = st.session_state["input_email"]
+    clave = st.session_state["input_password"]
+    
+    if verificar_credenciales_online(email, clave):
         st.session_state["usuario_validado"] = True
+        st.session_state["user_email"] = email  # Guardamos email para la marca de agua
         st.toast("✅ Acceso Concedido")
     else:
         st.error("🚫 Credenciales inválidas.")
@@ -66,14 +73,15 @@ def eliminar_item(index):
 def limpiar_proyecto():
     st.session_state["carrito_proyecto"] = []
 
-# --- 3. MOTOR PDF ---
+# --- 3. MOTOR PDF (Marca de Agua Restaurada) ---
 class PDFReport(FPDF):
     def footer(self):
         self.set_y(-15)
         self.set_font('Arial', 'I', 8)
         self.set_text_color(128, 128, 128)
         hoy = datetime.date.today().strftime("%d/%m/%Y")
-        texto = f"Generado el {hoy} por {st.session_state.get('input_email','Usuario')}. Prohibida su copia."
+        usuario = st.session_state.get("user_email", "Usuario")
+        texto = f"Generado el {hoy} por {usuario}. Licencia intransferible. Prohibida su copia."
         self.cell(0, 10, texto, 0, 0, 'C')
 
 def generar_pdf(df_total):
@@ -83,8 +91,11 @@ def generar_pdf(df_total):
     pdf.set_font("Arial", "B", 16)
     pdf.cell(0, 10, "LISTA DE MATERIALES CONSOLIDADA", ln=True, align='C')
     pdf.ln(5)
+    
+    # Subtítulo restaurado
     pdf.set_font("Arial", size=10)
-    pdf.cell(0, 10, f"Cliente: {st.session_state.get('input_email','')}", ln=True, align='C')
+    usuario = st.session_state.get("user_email", "")
+    pdf.cell(0, 10, f"Licencia otorgada a: {usuario}", ln=True, align='C')
     pdf.ln(5)
     
     pdf.set_fill_color(220, 230, 241)
@@ -148,7 +159,7 @@ class CalculadoraConstruccion:
             materiales.append(["Terminación", "Cinta de Papel", "Metros", math.ceil(sup_total_placas * 1.6)])
             materiales.append(["Terminación", "Masilla (Juntas)", "Kg", math.ceil(sup_total_placas * 0.9)])
 
-        # --- B: CIELORRASO 35mm (CORRECCIÓN: MAESTRAS INTERNAS) ---
+        # --- B: CIELORRASO 35mm (MAESTRAS INTERNAS) ---
         elif self.tipo == "Cielorraso (Perfileria 35mm)":
             lado_corto = min(self.largo, self.altura)
             lado_largo = max(self.largo, self.altura)
@@ -158,13 +169,10 @@ class CalculadoraConstruccion:
             cant_solera35 = math.ceil((ml_perimetro * self.desp) / self.L_PERFIL_DW)
             
             # 3. Portantes (Secundarios - Sentido Corto)
-            # Modulación completa (incluye extremos para atornillar placa en bordes si es necesario, o refuerzo)
             filas_portantes = math.ceil(lado_largo / self.sep) + 1
             ml_portantes = filas_portantes * lado_corto
             
             # 4. Maestras (Primarios - Sentido Largo - CORREGIDO)
-            # Solo internas. Restamos 1 al cálculo de tramos para evitar las perimetrales.
-            # Fórmula: ceil(Ancho / 1.00m) - 1. Si da < 0, es 0.
             sep_maestras = 1.00
             filas_maestras = math.ceil(lado_corto / sep_maestras) - 1
             if filas_maestras < 0: filas_maestras = 0
@@ -172,7 +180,6 @@ class CalculadoraConstruccion:
             ml_maestras = filas_maestras * lado_largo
             
             # 5. Velas Rígidas
-            # Solo necesarias si hay maestras. Colgadas cada ~1.00m sobre la maestra.
             if ml_maestras > 0:
                 cant_velas = math.ceil(ml_maestras / 1.0)
             else:
@@ -187,8 +194,7 @@ class CalculadoraConstruccion:
             materiales.append(["Estructura", "Solera 35mm (2.6m)", "Unidades", cant_solera35])
             materiales.append(["Estructura", "Montante 35mm (2.6m)", "Unidades", cant_montante35])
             
-            # Tornillos T1 (Cruces + Velas)
-            # Cruces = Filas Portantes * Filas Maestras
+            # Tornillos T1
             cant_cruces = filas_portantes * filas_maestras
             cant_t1 = math.ceil((cant_cruces + (cant_velas * 2)) * self.desp)
             materiales.append(["Suspensión", "Tornillos T1", "Unidades", cant_t1])
@@ -289,6 +295,7 @@ else:
             aislacion = st.checkbox("Incluir Aislación")
         sep = st.select_slider("Modulación (cm)", [40, 48, 60], value=40)
         desp = st.slider("Desperdicio (%)", 0, 20, 10)
+        
         if st.button("Calcular y Agregar", type="primary"):
             L = largo_calc if "Cielorraso" not in tipo_sis else l1
             H = alto_calc if "Cielorraso" not in tipo_sis else l2
